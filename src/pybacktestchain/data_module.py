@@ -8,6 +8,14 @@ import logging
 from scipy.optimize import minimize
 import numpy as np
 
+import sys
+import os
+
+# Add the directory to the system path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 
@@ -109,7 +117,7 @@ class Information:
         
 @dataclass
 class FirstTwoMoments(Information):
-
+    #### The easiest one 
     def compute_portfolio(self, t:datetime, information_set):
         mu = information_set['expected_return']
         Sigma = information_set['covariance_matrix']
@@ -166,10 +174,59 @@ class FirstTwoMoments(Information):
         information_set['covariance_matrix'] = covariance_matrix
         information_set['companies'] = data.columns.to_numpy()
         return information_set
+class Momentum(Information):
+       #### The easiest one 
+    def compute_portfolio(self, t:datetime, information_set):
+        mu = information_set['expected_return']
+        if len(mu)% 2 == 0:
+            n = len(mu)
+        else: 
+            n = len(mu)-1
+        companies = information_set['companies']
+        # prepare dictionary 
+        portfolio = {company: 0 for company in companies}  # Default weight is 0
+        returns_dict = {company: mu[i] for i, company in enumerate(companies)}
+        sorted_returns = sorted(returns_dict.items(), key=lambda item: item[1], reverse=True)
+        top = sorted_returns[:n//2]
+        bottom = sorted_returns[n//2:]
+        
+        for company, _ in top:
+            portfolio[company] = 1/n
+        
+        for company, _ in bottom:
+            portfolio[company] = -1/n
+                
+        return portfolio
 
+    def compute_information(self, t : datetime):
+        # Get the data module 
+        data = self.slice_data(t)
+        # the information set will be a dictionary with the data
+        information_set = {}
 
+        # sort data by ticker and date
+        data = data.sort_values(by=[self.company_column, self.time_column])
 
+        # expected return per company
+        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change().mean()
+        
+        # expected return by company 
+        information_set['expected_return'] = data.groupby(self.company_column)['return'].mean().to_numpy()
 
+        # covariance matrix
+
+        # 1. pivot the data
+        data = data.pivot(index=self.time_column, columns=self.company_column, values=self.adj_close_column)
+        # drop missing values
+        data = data.dropna(axis=0)
+        # 2. compute the covariance matrix
+        covariance_matrix = data.cov()
+        # convert to numpy matrix 
+        covariance_matrix = covariance_matrix.to_numpy()
+        # add to the information set
+        
+        information_set['companies'] = data.columns.to_numpy()
+        return information_set
 
 
 
