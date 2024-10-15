@@ -12,8 +12,7 @@ import sys
 import os
 
 # Add the directory to the system path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
+# sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
 # Setup logging
@@ -116,37 +115,41 @@ class Information:
        
         
 @dataclass
-class FirstTwoMoments(Information):
-    #### The easiest one 
-    def compute_portfolio(self, t:datetime, information_set):
+class FirstFourMoments(Information):
+    def compute_portfolio(self, t: datetime, information_set):
         mu = information_set['expected_return']
         Sigma = information_set['covariance_matrix']
+        kurtosis = information_set['kurtosis']
 
-        gamma = 1 # risk aversion parameter
+        #gamma = 1  # risk aversion parameter
         n = len(mu)
-        # objective function
-        obj = lambda x: -x.dot(mu) + gamma/2 * x.dot(Sigma).dot(x)
+        # objective function : Minimize Kurtosis 
+        obj = lambda x: x.dot(kurtosis)
+        #obj = lambda x: -x.dot(mu) + gamma / 2 * x.dot(Sigma).dot(x)
         # constraints
-        cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-        # bounds, allow short selling, +- inf 
-        bounds = [(None, None)] * n
+        cons = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}),  # sum of weights = 1
+        #{'type': 'ineq', 'fun': lambda x: x.dot(mu)})     # expected return > 0
+        
+        # bounds, allow short selling, +- inf
+        bounds = [(0, None)] * n
         # initial guess, equal weights
         x0 = np.ones(n) / n
         # minimize
         res = minimize(obj, x0, constraints=cons, bounds=bounds)
 
-        # prepare dictionary 
+        # prepare dictionary
         portfolio = {k: None for k in information_set['companies']}
 
         # if converged update
         if res.success:
             for i, company in enumerate(information_set['companies']):
                 portfolio[company] = res.x[i]
-        
+
         return portfolio
 
-    def compute_information(self, t : datetime):
-        # Get the data module 
+    def compute_information(self, t: datetime):
+        # Get the data module
         data = self.slice_data(t)
         # the information set will be a dictionary with the data
         information_set = {}
@@ -155,145 +158,25 @@ class FirstTwoMoments(Information):
         data = data.sort_values(by=[self.company_column, self.time_column])
 
         # expected return per company
-        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change() #.mean()
+        data['return'] = data.groupby(self.company_column)[self.adj_close_column].pct_change()
         
-        # expected return by company 
+        # expected return by company
         information_set['expected_return'] = data.groupby(self.company_column)['return'].mean().to_numpy()
 
         # covariance matrix
-
-        # 1. pivot the data
-        data = data.pivot(index=self.time_column, columns=self.company_column, values=self.adj_close_column)
-        # drop missing values
-        data = data.dropna(axis=0)
-        # 2. compute the covariance matrix
-        covariance_matrix = data.cov()
-        # convert to numpy matrix 
-        covariance_matrix = covariance_matrix.to_numpy()
-        # add to the information set
+        data_pivot = data.pivot(index=self.time_column, columns=self.company_column, values=self.adj_close_column)
+        data_pivot = data_pivot.dropna(axis=0)
+        covariance_matrix = data_pivot.cov().to_numpy()
         information_set['covariance_matrix'] = covariance_matrix
-        information_set['companies'] = data.columns.to_numpy()
+        information_set['companies'] = data_pivot.columns.to_numpy()
+
+        # Skewness and Kurtosis
+        skewness = data.groupby(self.company_column)['return'].skew().to_numpy()
+        kurtosis = data.groupby(self.company_column)['return'].apply(pd.Series.kurt).to_numpy()
+        
+        information_set['skewness'] = skewness
+        information_set['kurtosis'] = kurtosis
+        
         return information_set
-class Momentum(Information):
-       #### The easiest one 
-    def compute_portfolio(self, t:datetime, information_set):
-        mu = information_set['expected_return']
-        if len(mu)% 2 == 0:
-            n = len(mu)
-        else: 
-            n = len(mu)-1
-        companies = information_set['companies']
-        # prepare dictionary 
-        portfolio = {company: 0 for company in companies}  # Default weight is 0
-        returns_dict = {company: mu[i] for i, company in enumerate(companies)}
-        sorted_returns = sorted(returns_dict.items(), key=lambda item: item[1], reverse=True)
-        top = sorted_returns[:n//2]
-        bottom = sorted_returns[n//2:]
-        
-        for company, _ in top:
-            portfolio[company] = 1/n
-        
-        for company, _ in bottom:
-            portfolio[company] = -1/n
-                
-        return portfolio
-
-    def compute_information(self, t : datetime):
-        # Get the data module 
-        data = self.slice_data(t)
-        # the information set will be a dictionary with the data
-        information_set = {}
-
-        # sort data by ticker and date
-        data = data.sort_values(by=[self.company_column, self.time_column])
-
-        # expected return per company
-        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change().mean()
-        
-        # expected return by company 
-        information_set['expected_return'] = data.groupby(self.company_column)['return'].mean().to_numpy()
-
-        # covariance matrix
-
-        # 1. pivot the data
-        data = data.pivot(index=self.time_column, columns=self.company_column, values=self.adj_close_column)
-        # drop missing values
-        data = data.dropna(axis=0)
-        # 2. compute the covariance matrix
-        covariance_matrix = data.cov()
-        # convert to numpy matrix 
-        covariance_matrix = covariance_matrix.to_numpy()
-        # add to the information set
-        
-        information_set['companies'] = data.columns.to_numpy()
-        return information_set
-
-@dataclass
-class MaxReturnsMinVarBis(Information):
-
-    def compute_portfolio(self, t:datetime, information_set):
-        mu = information_set['expected_return']
-        Sigma = information_set['covariance_matrix']
-        max_sigma = information_set['max_variance']
-
-        gamma = 1 # risk aversion parameter
-        n = len(mu)
-        # objective function
-        obj = lambda x: -x.dot(mu) + gamma/2 * x.dot(Sigma).dot(x)
-        # constraints
-        cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
-                {'type': 'ineq', 'fun': lambda x: x.dot(Sigma).dot(x) - max_sigma})
-        
-        # bounds, allow short selling, +- inf 
-        bounds = [(None, None)] * n
-        # initial guess, equal weights
-        x0 = np.ones(n) / n
-        # minimize
-        res = minimize(obj, x0, constraints=cons, bounds=bounds)
-
-        # prepare dictionary 
-        portfolio = {k: None for k in information_set['companies']}
-
-        # if converged update
-        if res.success:
-            for i, company in enumerate(information_set['companies']):
-                portfolio[company] = res.x[i]
-        
-        return portfolio
-
-    def compute_information(self, t : datetime):
-        # Get the data module 
-        data = self.slice_data(t)
-        # the information set will be a dictionary with the data
-        information_set = {}
-
-        # sort data by ticker and date
-        data = data.sort_values(by=[self.company_column, self.time_column])
-
-        # expected return per company
-        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change().mean()
-        # 
-        max_var = (np.mean(data.groupby(self.company_column)[self.adj_close_column].pct_change().std()))**2
-        
-        # expected return by company 
-        information_set['expected_return'] = data.groupby(self.company_column)['return'].mean().to_numpy()
-
-        # covariance matrix
-
-        # 1. pivot the data
-        data = data.pivot(index=self.time_column, columns=self.company_column, values=self.adj_close_column)
-        # drop missing values
-        data = data.dropna(axis=0)
-        # 2. compute the covariance matrix
-        covariance_matrix = data.cov()
-        # convert to numpy matrix 
-        covariance_matrix = covariance_matrix.to_numpy()
-        # add to the information set
-        information_set['covariance_matrix'] = covariance_matrix
-        information_set['companies'] = data.columns.to_numpy()
-        information_set['max_variance'] = max_var
-        return information_set
-
-
 
 
