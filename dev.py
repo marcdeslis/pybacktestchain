@@ -1,5 +1,5 @@
 #%%
-from pybacktestchain.data_module import get_stocks_data, UNIVERSE_SEC, DataModule, Information, FirstTwoMoments
+from src.pybacktestchain.data_module import get_stocks_data, UNIVERSE_SEC, DataModule, Information, Momentum,FirstTwoMoments
 from datetime import timedelta
 
 # pick 10 random stocks
@@ -12,8 +12,8 @@ df = get_stocks_data(stocks, '2000-01-01', '2020-12-31')
 # Initialize the DataModule
 data_module = DataModule(df)
 
-# Create the FirstTwoMoments object
-info = FirstTwoMoments(s = timedelta(days=360), 
+# Create the Momentum object
+info = Momentum(s = timedelta(days=360), 
                        data_module = data_module,
                        time_column='Date',
                        company_column='ticker',
