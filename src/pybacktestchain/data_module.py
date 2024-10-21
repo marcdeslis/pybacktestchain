@@ -1,3 +1,4 @@
+#%%
 import yfinance as yf
 import pandas as pd 
 from sec_cik_mapper import StockMapper
@@ -73,6 +74,8 @@ def get_stocks_data(tickers, start_date, end_date):
     data = pd.concat(dfs)
     return data
 
+# test 
+# get_stocks_data(['AAPL', 'MSFT'], '2000-01-01', '2020-12-31')
 #---------------------------------------------------------
 # Classes 
 #---------------------------------------------------------
@@ -95,9 +98,8 @@ CLass Dog(Mammals, )
 
 @dataclass
 class Information:
-    #ici suivent les paramètres à rentrer après Information quand on veut appeler une fonction de cette class
-    s: timedelta # Time step (rolling window), tells us how far away in time we can look price
-    data_module: DataModule # Data module
+    s: timedelta = timedelta(days=360) # Time step (rolling window), # Time step (rolling window), tells us how far away in time we can look price
+    data_module: DataModule = None # Data module
     time_column: str = 'Date'
     company_column: str = 'ticker'
     adj_close_column: str = 'Close'
@@ -107,69 +109,58 @@ class Information:
         data = self.data_module.data
         # Get the time step 
         s = self.s
+
+        # Convert both `t` and the data column to timezone-aware, if needed
+        if t.tzinfo is not None:
+            # If `t` is timezone-aware, make sure data is also timezone-aware
+            data[self.time_column] = pd.to_datetime(data[self.time_column]).dt.tz_localize(t.tzinfo.zone, ambiguous='NaT', nonexistent='NaT')
+        else:
+            # If `t` is timezone-naive, ensure the data is timezone-naive as well
+            data[self.time_column] = pd.to_datetime(data[self.time_column]).dt.tz_localize(None)
+        
         # Get the data only between t-s and t
         data = data[(data[self.time_column] >= t - s) & (data[self.time_column] < t)] #we don't use the last closing price
         return data
 
-    def compute_information(self, t : datetime):  #we will write these functions ourselves for each trading strategy
+    def get_prices(self, t : datetime):
+        # gets the prices at which the portfolio will be rebalanced at time t 
+        data = self.slice_data(t)
+        
+        # get the last price for each company
+        prices = data.groupby(self.company_column)[self.adj_close_column].last()
+        # to dict, ticker as key price as value 
+        prices = prices.to_dict()
+        return prices
+
+    def compute_information(self, t : datetime):  
         pass
 
     def compute_portfolio(self, t : datetime,  information_set : dict):
         pass
+
        
         
 @dataclass
 class FirstTwoMoments(Information):
+    def compute_portfolio(self, t:datetime, information_set):
+        try:
+            mu = information_set['expected_return']
+            Sigma = information_set['covariance_matrix']
+            gamma = 1 # risk aversion parameter
+            n = len(mu)
+            # objective function
+            obj = lambda x: -x.dot(mu) + gamma/2 * x.dot(Sigma).dot(x)
+            # constraints
+            cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+            # bounds, allow short selling, +- inf 
+            bounds = [(0.0, 1.0)] * n
+            # initial guess, equal weights
+            x0 = np.ones(n) / n
+            # minimize
+            res = minimize(obj, x0, constraints=cons, bounds=bounds)
 
-    def compute_portfolio(self, t:datetime, information_set): #we need to compute the information set before the porfolio ! fonction en bas
-        mu = information_set['expected_return']
-        Sigma = information_set['covariance_matrix']
-
-        gamma = 1 # risk aversion parameter
-        n = len(mu)
-        # objective function
-        obj = lambda x: -x.dot(mu) + gamma/2 * x.dot(Sigma).dot(x)
-        # constraints
-        cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1}) #scipy utilise la constraint con avec 2 paramètres "Type" pour le type de fct, ici = et la fonction
-        # bounds, allow short selling, +- inf 
-        bounds = [(None, None)] * n
-        # initial guess, equal weights
-        x0 = np.ones(n) / n
-        # minimize
-        res = minimize(obj, x0, constraints=cons, bounds=bounds)
-
-        # prepare dictionary 
-        portfolio = {k: None for k in information_set['companies']}
-
-        # if converged update
-        if res.success:
-            for i, company in enumerate(information_set['companies']):
-                portfolio[company] = res.x[i]
-        
-        return portfolio
-
-    def compute_portfolio_bis(self, t:datetime, information_set, targetReturn: float): 
-        mu = information_set['expected_return']
-        Sigma = information_set['covariance_matrix']
-
-        n = len(mu) # number of assets
-        # objective function
-        obj = lambda x: x.dot(Sigma).dot(x) 
-        # constraints
-        # 1. Sum of weitghts mus be equal to 1
-        cons = [({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})] #scipy utilise la constraint cons avec 2 paramètres "Type" pour le type de fct, ici = et la fonction
-        # 2. expected return of portfolio must be equal to the target return Rt
-        cons.append({'type': 'eq', 'fun': lambda x: x.dot(mu) - targetReturn})
-
-        # bounds, allow short selling, +- inf 
-        bounds = [(None, None)] * n
-        # initial guess, equal weights
-        x0 = np.ones(n) / n
-        # minimize
-        res = minimize(obj, x0, constraints=cons, bounds=bounds)
-
-        # prepare dictionary 
-        portfolio = {k: None for k in information_set['companies']}
+            # prepare dictionary 
+            portfolio = {k: None for k in information_set['companies']}
 
         # if converged update
         if res.success:
@@ -216,6 +207,7 @@ class FirstTwoMoments(Information):
         return information_set
 
 
+        
 
 
 
@@ -223,4 +215,4 @@ class FirstTwoMoments(Information):
 
 
 
-
+# %%
