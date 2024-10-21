@@ -1,10 +1,9 @@
-
 import yfinance as yf
 import pandas as pd 
 from sec_cik_mapper import StockMapper
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-import logging 
+from datetime import datetime, timedelta #timedelta specifies the frequency of the strategy
+import logging #in order to avoid printing too much, divide the type of messages..
 from scipy.optimize import minimize
 import numpy as np
 
@@ -14,8 +13,9 @@ logging.basicConfig(level=logging.INFO)
 #---------------------------------------------------------
 # Constants
 #---------------------------------------------------------
+# for the moment, we assume that the universe of companies is constant 
 
-UNIVERSE_SEC = list(StockMapper().ticker_to_cik.keys())
+UNIVERSE_SEC = list(StockMapper().ticker_to_cik.keys()) #we ask for the keys of the dictionnary SotckMapper
 
 #---------------------------------------------------------
 # Functions
@@ -43,7 +43,7 @@ def get_stock_data(ticker, start_date, end_date):
     df['ticker'] = ticker
     df.reset_index(inplace=True)
     return df
-
+#print(get_stock_data("AAPL", "2020-01-01", "2024-01-01"))
 def get_stocks_data(tickers, start_date, end_date):
     """get_stocks_data retrieves historical data on prices for a list of stocks
 
@@ -81,26 +81,37 @@ def get_stocks_data(tickers, start_date, end_date):
 @dataclass
 class DataModule:
     data: pd.DataFrame
+#we first download all the data we need and we stock it, so we don't have to import it every time
 
-# Interface for the information set 
+# Interface for the information set => enables to save time, some attribute that can be in many classes. 
+
+"""
+Class Mammals() <- interface
+...
+
+Class Gorilla(Mammals, )
+CLass Dog(Mammals, )
+"""
+
 @dataclass
 class Information:
-    s: timedelta # Time step (rolling window)
+    #ici suivent les paramètres à rentrer après Information quand on veut appeler une fonction de cette class
+    s: timedelta # Time step (rolling window), tells us how far away in time we can look price
     data_module: DataModule # Data module
     time_column: str = 'Date'
     company_column: str = 'ticker'
     adj_close_column: str = 'Close'
 
-    def slice_data(self, t : datetime):
+    def slice_data(self, t : datetime): #enables to create small information set, slice/cut the data. t parameter is the current time where we are
          # Get the data module 
         data = self.data_module.data
         # Get the time step 
         s = self.s
         # Get the data only between t-s and t
-        data = data[(data[self.time_column] >= t - s) & (data[self.time_column] < t)]
+        data = data[(data[self.time_column] >= t - s) & (data[self.time_column] < t)] #we don't use the last closing price
         return data
 
-    def compute_information(self, t : datetime):  
+    def compute_information(self, t : datetime):  #we will write these functions ourselves for each trading strategy
         pass
 
     def compute_portfolio(self, t : datetime,  information_set : dict):
@@ -110,7 +121,7 @@ class Information:
 @dataclass
 class FirstTwoMoments(Information):
 
-    def compute_portfolio(self, t:datetime, information_set):
+    def compute_portfolio(self, t:datetime, information_set): #we need to compute the information set before the porfolio ! fonction en bas
         mu = information_set['expected_return']
         Sigma = information_set['covariance_matrix']
 
@@ -119,7 +130,7 @@ class FirstTwoMoments(Information):
         # objective function
         obj = lambda x: -x.dot(mu) + gamma/2 * x.dot(Sigma).dot(x)
         # constraints
-        cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+        cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1}) #scipy utilise la constraint con avec 2 paramètres "Type" pour le type de fct, ici = et la fonction
         # bounds, allow short selling, +- inf 
         bounds = [(None, None)] * n
         # initial guess, equal weights
@@ -137,24 +148,61 @@ class FirstTwoMoments(Information):
         
         return portfolio
 
+    def compute_portfolio_bis(self, t:datetime, information_set, targetReturn: float): 
+        mu = information_set['expected_return']
+        Sigma = information_set['covariance_matrix']
+
+        n = len(mu) # number of assets
+        # objective function
+        obj = lambda x: x.dot(Sigma).dot(x) 
+        # constraints
+        # 1. Sum of weitghts mus be equal to 1
+        cons = [({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})] #scipy utilise la constraint cons avec 2 paramètres "Type" pour le type de fct, ici = et la fonction
+        # 2. expected return of portfolio must be equal to the target return Rt
+        cons.append({'type': 'eq', 'fun': lambda x: x.dot(mu) - targetReturn})
+
+        # bounds, allow short selling, +- inf 
+        bounds = [(None, None)] * n
+        # initial guess, equal weights
+        x0 = np.ones(n) / n
+        # minimize
+        res = minimize(obj, x0, constraints=cons, bounds=bounds)
+
+        # prepare dictionary 
+        portfolio = {k: None for k in information_set['companies']}
+
+        # if converged update
+        if res.success:
+            for i, company in enumerate(information_set['companies']):
+                portfolio[company] = res.x[i]
+        
+        return portfolio
+
+
+
+
     def compute_information(self, t : datetime):
         # Get the data module 
-        data = self.slice_data(t)
+        data = self.slice_data(t) #don't need to redefine the fct as it was defined in the interface
         # the information set will be a dictionary with the data
-        information_set = {}
+        information_set = {} #dictionary
 
         # sort data by ticker and date
         data = data.sort_values(by=[self.company_column, self.time_column])
 
         # expected return per company
-        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change().mean()
+        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change()
+        data = data.dropna(subset="return")
+
+        # expected return per company
+        # data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change().mean()
         
-        # expected return by company 
+        # # expected return by company, we put the return inside the dictionnary. we convert the list into an array that we will use after
         information_set['expected_return'] = data.groupby(self.company_column)['return'].mean().to_numpy()
 
         # covariance matrix
 
-        # 1. pivot the data
+        # 1. pivot the data (pivot table)
         data = data.pivot(index=self.time_column, columns=self.company_column, values=self.adj_close_column)
         # drop missing values
         data = data.dropna(axis=0)
