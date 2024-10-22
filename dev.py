@@ -1,6 +1,6 @@
 #%%
-from pybacktestchain.data_module import  FirstTwoMoments
-from pybacktestchain.broker import Backtest, StopLoss
+from src.pybacktestchain.data_module import FirstTwoMoments
+from src.pybacktestchain.broker import Backtest, StopLoss
 from datetime import datetime
 
 backtest = Backtest(

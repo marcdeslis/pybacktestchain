@@ -2,8 +2,8 @@ import pandas as pd
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from pybacktestchain.data_module import UNIVERSE_SEC, FirstTwoMoments, get_stocks_data, DataModule, Information
-from pybacktestchain.utils import generate_random_name
+from src.pybacktestchain.data_module import UNIVERSE_SEC, FirstTwoMoments, get_stocks_data, DataModule, Information
+from src.pybacktestchain.utils import generate_random_name
 
 
 # Setup logging
