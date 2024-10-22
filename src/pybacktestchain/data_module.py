@@ -3,8 +3,8 @@ import yfinance as yf
 import pandas as pd 
 from sec_cik_mapper import StockMapper
 from dataclasses import dataclass
-from datetime import datetime, timedelta #timedelta specifies the frequency of the strategy
-import logging #in order to avoid printing too much, divide the type of messages..
+from datetime import datetime, timedelta
+import logging 
 from scipy.optimize import minimize
 import numpy as np
 
@@ -14,9 +14,8 @@ logging.basicConfig(level=logging.INFO)
 #---------------------------------------------------------
 # Constants
 #---------------------------------------------------------
-# for the moment, we assume that the universe of companies is constant 
 
-UNIVERSE_SEC = list(StockMapper().ticker_to_cik.keys()) #we ask for the keys of the dictionnary SotckMapper
+UNIVERSE_SEC = list(StockMapper().ticker_to_cik.keys())
 
 #---------------------------------------------------------
 # Functions
@@ -44,7 +43,7 @@ def get_stock_data(ticker, start_date, end_date):
     df['ticker'] = ticker
     df.reset_index(inplace=True)
     return df
-#print(get_stock_data("AAPL", "2020-01-01", "2024-01-01"))
+
 def get_stocks_data(tickers, start_date, end_date):
     """get_stocks_data retrieves historical data on prices for a list of stocks
 
@@ -84,28 +83,18 @@ def get_stocks_data(tickers, start_date, end_date):
 @dataclass
 class DataModule:
     data: pd.DataFrame
-#we first download all the data we need and we stock it, so we don't have to import it every time
 
-# Interface for the information set => enables to save time, some attribute that can be in many classes. 
-
-"""
-Class Mammals() <- interface
-...
-
-Class Gorilla(Mammals, )
-CLass Dog(Mammals, )
-"""
-
+# Interface for the information set 
 @dataclass
 class Information:
-    s: timedelta = timedelta(days=360) # Time step (rolling window), # Time step (rolling window), tells us how far away in time we can look price
+    s: timedelta = timedelta(days=360) # Time step (rolling window)
     data_module: DataModule = None # Data module
     time_column: str = 'Date'
     company_column: str = 'ticker'
     adj_close_column: str = 'Close'
 
-    def slice_data(self, t : datetime): #enables to create small information set, slice/cut the data. t parameter is the current time where we are
-         # Get the data module 
+    def slice_data(self, t : datetime):
+        # Get the data module 
         data = self.data_module.data
         # Get the time step 
         s = self.s
@@ -119,7 +108,7 @@ class Information:
             data[self.time_column] = pd.to_datetime(data[self.time_column]).dt.tz_localize(None)
         
         # Get the data only between t-s and t
-        data = data[(data[self.time_column] >= t - s) & (data[self.time_column] < t)] #we don't use the last closing price
+        data = data[(data[self.time_column] >= t - s) & (data[self.time_column] < t)]
         return data
 
     def get_prices(self, t : datetime):
@@ -162,38 +151,38 @@ class FirstTwoMoments(Information):
             # prepare dictionary 
             portfolio = {k: None for k in information_set['companies']}
 
-        # if converged update
-        if res.success:
-            for i, company in enumerate(information_set['companies']):
-                portfolio[company] = res.x[i]
-        
-        return portfolio
+            # if converged update
+            if res.success:
+                for i, company in enumerate(information_set['companies']):
+                    portfolio[company] = res.x[i]
+            else:
+                raise Exception("Optimization did not converge")
 
-
-
+            return portfolio
+        except Exception as e:
+            # if something goes wrong return an equal weight portfolio but let the user know 
+            logging.warning("Error computing portfolio, returning equal weight portfolio")
+            logging.warning(e)
+            return {k: 1/len(information_set['companies']) for k in information_set['companies']}
 
     def compute_information(self, t : datetime):
         # Get the data module 
-        data = self.slice_data(t) #don't need to redefine the fct as it was defined in the interface
+        data = self.slice_data(t)
         # the information set will be a dictionary with the data
-        information_set = {} #dictionary
+        information_set = {}
 
         # sort data by ticker and date
         data = data.sort_values(by=[self.company_column, self.time_column])
 
         # expected return per company
-        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change()
-        data = data.dropna(subset="return")
-
-        # expected return per company
-        # data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change().mean()
+        data['return'] =  data.groupby(self.company_column)[self.adj_close_column].pct_change() #.mean()
         
-        # # expected return by company, we put the return inside the dictionnary. we convert the list into an array that we will use after
+        # expected return by company 
         information_set['expected_return'] = data.groupby(self.company_column)['return'].mean().to_numpy()
 
         # covariance matrix
 
-        # 1. pivot the data (pivot table)
+        # 1. pivot the data
         data = data.pivot(index=self.time_column, columns=self.company_column, values=self.adj_close_column)
         # drop missing values
         data = data.dropna(axis=0)
