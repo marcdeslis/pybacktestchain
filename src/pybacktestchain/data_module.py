@@ -193,5 +193,40 @@ class FirstTwoMoments(Information):
         information_set['covariance_matrix'] = covariance_matrix
         information_set['companies'] = data.columns.to_numpy()
         return information_set
+    
+    def compute_portfolio_riskparity(self, t: datetime, information_set):
+        try:
+            Sigma = information_set['covariance_matrix']
+            n = len(Sigma)
 
+            # Objective function to minimize the difference in risk contributions
+            def risk_parity_obj(weights):
+                portfolio_var =np.dot(weights.T, np.dot(Sigma, weights))
+                marginal_contrib = np.dot(Sigma, weights)
+                risk_contrib = (weights * marginal_contrib)/portfolio_var
+                target_risk = np.mean(risk_contrib)
+                return np.sum((risk_contrib - target_risk) ** 2) # we want to minimize the difference between the sum of the risk contributions of all assets and the target risk
 
+            # Constraints: weights sum to 1
+            cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+            # Bounds: weights between 0 and 1
+            bounds = [(0.0, 1.0)] * n
+            # Initial guess: equal weights
+            x0 = np.ones(n) / n
+            # Minimize
+            res = minimize(risk_parity_obj, x0, constraints=cons, bounds=bounds)
+
+            # Prepare dictionary
+            portfolio = {k: None for k in information_set['companies']}
+
+            # If converged, update
+            if res.success:
+                for i, company in enumerate(information_set['companies']):
+                    portfolio[company] = res.x[i]
+            else:
+                raise Exception("Optimization did not converge")
+
+            return portfolio
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
