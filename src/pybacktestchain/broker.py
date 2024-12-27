@@ -230,7 +230,7 @@ class Backtest:
     initial_cash: int = 1000000  # Initial cash in the portfolio
     name_blockchain: str = 'backtest'
     verbose: bool = True
-    broker = Broker(cash=initial_cash, verbose=verbose)
+    broker = Broker(cash=initial_cash, verbose=verbose) #or broker : type = Broker to be able to backtest from an exisging broker
     
     def __post_init__(self):
         self.backtest_name = generate_random_name()
