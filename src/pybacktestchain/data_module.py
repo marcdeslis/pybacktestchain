@@ -228,5 +228,8 @@ class FirstTwoMoments(Information):
 
             return portfolio
         except Exception as e:
-            print(f"An error occurred: {e}")
-            return None
+             # if something goes wrong return an equal weight portfolio but let the user know 
+            logging.warning("Error computing portfolio, returning equal weight portfolio")
+            logging.warning(e)
+            return {k: 1/len(information_set['companies']) for k in information_set['companies']}
+        
