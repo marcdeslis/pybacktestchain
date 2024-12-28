@@ -232,4 +232,66 @@ class FirstTwoMoments(Information):
             logging.warning("Error computing portfolio, returning equal weight portfolio")
             logging.warning(e)
             return {k: 1/len(information_set['companies']) for k in information_set['companies']}
-        
+            
+
+    def compute_portfolio_riskparity_target_leverage(self, t: datetime, information_set, leverage_factor=1.0, target_volatility=0.1):
+        try:
+            Sigma = information_set['covariance_matrix']
+            n = len(Sigma)
+
+            # Objective function to minimize the difference in risk contributions
+            def risk_parity_obj(weights):
+                portfolio_var = np.dot(weights.T, np.dot(Sigma, weights))
+                marginal_contrib = np.dot(Sigma, weights)
+                risk_contrib = (weights * marginal_contrib) / portfolio_var
+                target_risk = np.mean(risk_contrib)
+                return np.sum((risk_contrib - target_risk) ** 2)
+
+            # Constraints: weights sum to 1
+            cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+
+            # Bounds: weights between 0 and 1
+            bounds = [(0.0, 1.0)] * n
+
+            # Initial guess: equal weights
+            x0 = np.ones(n) / n
+
+            # Minimize the risk parity objective
+            res = minimize(risk_parity_obj, x0, constraints=cons, bounds=bounds)
+
+            # Prepare the portfolio weights dictionary
+            portfolio = {k: None for k in information_set['companies']}
+
+            if res.success:
+                # Retrieve the optimized weights
+                risk_parity_weights = res.x
+
+                # Compute the portfolio's current volatility
+                portfolio_volatility = np.sqrt(np.dot(risk_parity_weights.T, np.dot(Sigma, risk_parity_weights)))
+                logging.info(f"Original Volatility: {portfolio_volatility}")
+
+                # We adjust the weights to match the desired target_volatility
+                scaling_factor = target_volatility / portfolio_volatility
+                scaled_weights = risk_parity_weights * scaling_factor
+
+                # we multiply by the leverage_factor to achieve the desired total portfolio exposure:
+                leveraged_weights = scaled_weights * leverage_factor
+
+                # Update the portfolio dictionary
+                for i, company in enumerate(information_set['companies']):
+                    portfolio[company] = leveraged_weights[i]
+            else:
+                raise Exception("Optimization did not converge")
+
+            # Return the final portfolio
+            return portfolio
+
+        except Exception as e:
+            # If something goes wrong, return an equal weight portfolio scaled by leverage
+            logging.warning("Error computing portfolio, returning equal weight portfolio")
+            logging.warning(e)
+            n_companies = len(information_set['companies'])
+            return {k: leverage_factor / n_companies for k in information_set['companies']}
+
+            
+
